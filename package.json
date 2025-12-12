@@ -1,0 +1,16 @@
+{
+  "name": "watchup-cron",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start:worker": "node monitor-worker.js",
+    "start:create-server": "node create-monitor.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "mysql2": "^3.9.7",
+    "node-fetch": "^3.3.2"
+  }
+}
+
