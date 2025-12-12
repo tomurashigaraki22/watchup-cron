@@ -1,10 +1,40 @@
 import dotenv from "dotenv";
 import fetch from "node-fetch";
+import nodemailer from "nodemailer";
 import { query } from "./db.js";
 
 dotenv.config();
 
 const tasks = new Map();
+
+const botToken = process.env.TELEGRAM_BOT_TOKEN;
+const smtpHost = "smtp.gmail.com";
+const smtpPort = 587;
+const smtpUser = "devtomiwa9@gmail.com";
+const smtpPass = "skyh iwhz zzis exdq";
+const smtpFrom = "Watchup Web";
+const transporter = smtpHost
+  ? nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort || 587,
+      secure: (smtpPort || 587) === 465,
+      auth: smtpUser ? { user: smtpUser, pass: smtpPass } : undefined,
+    })
+  : null;
+
+async function sendTelegramMessage(chatId, text) {
+  if (!botToken || !chatId) return;
+  await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: "Markdown" }),
+  });
+}
+
+async function sendEmail(to, subject, text) {
+  if (!transporter || !smtpFrom || !to) return;
+  await transporter.sendMail({ from: smtpFrom, to, subject, text });
+}
 
 function createWorker(monitor) {
   const state = { running: false, monitor };
@@ -23,23 +53,58 @@ function createWorker(monitor) {
     } finally {
       clearTimeout(timeout);
     }
+    const prevStatus = state.monitor.status || "unknown";
+    if (prevStatus !== status) {
+      if (status === "down") {
+        try {
+          const users = await query(
+            "SELECT id, email, name, telegram_chat_id, telegram_enabled FROM users WHERE id=?",
+            [state.monitor.user_id]
+          );
+          const user = users && users[0];
+          if (user) {
+            const text = `❗️ Website down\n${state.monitor.name || "Monitor"}: ${state.monitor.url}`;
+            if (user.telegram_enabled === 1 && user.telegram_chat_id) {
+              await sendTelegramMessage(user.telegram_chat_id, text);
+            } else if (user.email) {
+              await sendEmail(user.email, "Website down", `${state.monitor.name || "Monitor"} is DOWN: ${state.monitor.url}`);
+            }
+          }
+        } catch {}
+        try {
+          await fetch("https://yourmainapp.com/api/webhooks/monitor-status", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              monitor_id: state.monitor.id,
+              status: "down",
+              details: {},
+            }),
+          });
+        } catch {}
+      } else if (status === "up") {
+        try {
+          const users = await query(
+            "SELECT id, email, name, telegram_chat_id, telegram_enabled FROM users WHERE id=?",
+            [state.monitor.user_id]
+          );
+          const user = users && users[0];
+          if (user) {
+            const text = `✅ Website recovery\n${state.monitor.name || "Monitor"}: ${state.monitor.url}`;
+            if (user.telegram_enabled === 1 && user.telegram_chat_id) {
+              await sendTelegramMessage(user.telegram_chat_id, text);
+            } else if (user.email) {
+              await sendEmail(user.email, "Website recovered", `${state.monitor.name || "Monitor"} is UP: ${state.monitor.url}`);
+            }
+          }
+        } catch {}
+      }
+    }
     await query(
       "UPDATE monitors SET status=?, last_checked=NOW(), next_check=DATE_ADD(NOW(), INTERVAL ? SECOND) WHERE id=?",
       [status, state.monitor.check_interval_seconds, state.monitor.id]
     );
-    if (status === "down") {
-      try {
-        await fetch("https://yourmainapp.com/api/webhooks/monitor-status", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            monitor_id: state.monitor.id,
-            status: "down",
-            details: {},
-          }),
-        });
-      } catch {}
-    }
+    state.monitor.status = status;
     state.running = false;
   };
 
@@ -64,6 +129,7 @@ async function loadEnabledMonitors() {
     url: r.url,
     check_interval_seconds: r.check_interval_seconds,
     enabled: r.enabled,
+    status: r.status,
   }));
 }
 
@@ -86,6 +152,7 @@ async function reconcile() {
         createWorker(m);
       } else {
         existing.state.monitor.check_interval_seconds = m.check_interval_seconds;
+        existing.state.monitor.status = m.status;
       }
     }
   }
@@ -97,4 +164,3 @@ async function start() {
 }
 
 start();
-
