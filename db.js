@@ -6,7 +6,7 @@ dotenv.config();
 const pool = mysql.createPool({
   host: "localhost",
   port: Number(process.env.DB_PORT || 3306),
-  user: "watchup",
+  user: "admin",
   password: "Pityboy@22",
   database: "watchupweb",
   waitForConnections: true,
