@@ -72,7 +72,7 @@ function createWorker(monitor) {
           }
         } catch {}
         try {
-          await fetch("https://yourmainapp.com/api/webhooks/monitor-status", {
+          await fetch("https://watchup-web.vercel.app/api/webhooks/monitor-status", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
